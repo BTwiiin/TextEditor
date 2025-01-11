@@ -1,0 +1,98 @@
+@startuml
+package "Project Structure" {
+    folder "src" {
+        folder "Main" {
+            class "App"
+            class "TextEditor"
+        }
+        folder "Core" {
+            class "Rope"
+            class "UndoRedoStack"
+            class "FormatDictionary"
+        }
+        folder "UI" {
+            class "MainWindow"
+            class "EditorView"
+            class "FormattingToolbar"
+        }
+        folder "Utilities" {
+            class "FileHandler"
+            class "ConfigManager"
+        }
+    }
+}
+
+class App {
+    + OnStartup()
+}
+
+class TextEditor {
+    - Rope textContainer
+    - UndoRedoStack undoStack
+    - UndoRedoStack redoStack
+    - FormatDictionary formatting
+    + LoadFile(filePath: string)
+    + SaveFile(filePath: string)
+    + Undo()
+    + Redo()
+    + ApplyFormatting(range: Range, format: string)
+    + GetText(): string
+}
+
+class Rope {
+    + Insert(position: int, text: string)
+    + Delete(start: int, end: int)
+    + GetText(): string
+    + GetLength(): int
+}
+
+class UndoRedoStack {
+    + Push(action: Action)
+    + Pop(): Action
+    + IsEmpty(): bool
+}
+
+class FormatDictionary {
+    + AddFormatting(range: Range, format: string)
+    + RemoveFormatting(range: Range)
+    + GetFormatting(range: Range): List<string>
+}
+
+class MainWindow {
+    - EditorView editor
+    - FormattingToolbar toolbar
+    + OpenEditor()
+}
+
+class EditorView {
+    - TextEditor editor
+    + DisplayText()
+    + UpdateView()
+}
+
+class FormattingToolbar {
+    + ApplyBold()
+    + ApplyItalic()
+    + ApplyUnderline()
+}
+
+class FileHandler {
+    + ReadFile(filePath: string): string
+    + WriteFile(filePath: string, content: string)
+}
+
+class ConfigManager {
+    + LoadConfig(): Config
+    + SaveConfig(config: Config)
+}
+
+App --> TextEditor : uses
+TextEditor --> Rope : "main text container"
+TextEditor --> UndoRedoStack : "undo/redo operations"
+TextEditor --> FormatDictionary : "formatting data"
+MainWindow --> EditorView : contains
+MainWindow --> FormattingToolbar : contains
+EditorView --> TextEditor : contains
+TextEditor --> FileHandler : uses
+TextEditor --> ConfigManager : uses
+@enduml

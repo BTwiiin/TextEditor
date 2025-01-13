@@ -1,11 +1,10 @@
-using System;
-using System.Diagnostics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using TextEditor.UI.Controls.Helpers;
 
 namespace TextEditor.UI.Controls
 {
@@ -13,6 +12,7 @@ namespace TextEditor.UI.Controls
     {
         public TextEditorApp _textEditorApp { get; set; }
 
+        private TextHelpers _textHelper = new TextHelpers();
         private Caret _caret = new Caret(0);
         private Selection _selection = new Selection();
 
@@ -26,9 +26,6 @@ namespace TextEditor.UI.Controls
 
         private DispatcherTimer _caretTimer;
         private bool _caretBlinkVisible = true;
-
-        private Typeface _typeface = new Typeface("Consolas");
-        private double _fontSize = 16;
 
         static RopeEditorControl()
         {
@@ -50,7 +47,7 @@ namespace TextEditor.UI.Controls
             _caretTimer.Tick += (s, e) =>
             {
                 // If there's a selection, caret typically not blinking
-                if (HasSelection) 
+                if (_selection.HasSelection) 
                 {
                     _caretBlinkVisible = false;
                 }
@@ -62,9 +59,6 @@ namespace TextEditor.UI.Controls
             };
             _caretTimer.Start();
         }
-
-        private bool HasSelection => _selection.Start >= 0 && _selection.End > _selection.Start;
-
         // Make sure caret is in range if control gets focus
         protected override void OnGotFocus(RoutedEventArgs e)
         {
@@ -89,7 +83,7 @@ namespace TextEditor.UI.Controls
                 return;
 
             // If there's a selection, remove it "live"
-            if (HasSelection)
+            if (_selection.HasSelection)
             {
                 int start = Math.Min(_selection.Start, _selection.End);
                 int length = Math.Abs(_selection.End - _selection.Start);
@@ -198,9 +192,9 @@ namespace TextEditor.UI.Controls
                 switch (e.Key)
                 {
                     case Key.Back:
-                        if (_caret.Position > 0 || HasSelection)
+                        if (_caret.Position > 0 || _selection.HasSelection)
                         {
-                            if (HasSelection)
+                            if (_selection.HasSelection)
                             {
                                 int start = Math.Min(_selection.Start, _selection.End);
                                 int length = Math.Abs(_selection.End - _selection.Start);
@@ -217,8 +211,25 @@ namespace TextEditor.UI.Controls
                             handled = true;
                         }
                         break;
+                    case Key.Left:
+                        _caret.MoveLeft();
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;
 
-                    // ... handle arrow keys, enter, delete, etc. ...
+                    case Key.Right:
+                        _caret.MoveRight(_textEditorApp._rope.Length);
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;
+                    
+                    case Key.Enter:
+                        _textEditorApp._rope.Insert(_caret.Position, "\n");
+                        _caret.MoveRight(_textEditorApp._rope.Length); 
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;
+                    
                 }
             }
 
@@ -235,6 +246,7 @@ namespace TextEditor.UI.Controls
         {
             if (_typingSessionActive && _typingBuffer.Length > 0)
             {
+                Console.WriteLine("Finalizing typing session: " + _typingBuffer.ToString());
                 // Remove the "live inserted" text
                 _textEditorApp._rope.Delete(_typingStart, _typingBuffer.Length);
 
@@ -270,28 +282,19 @@ namespace TextEditor.UI.Controls
             {
                 if (_caretBlinkVisible && IsKeyboardFocusWithin)
                 {
-                    DrawCaret(drawingContext, 5, 5);
+                    _caret.DrawCaret(drawingContext, 5, 5, ActualWidth, ActualHeight);
                 }
                 return;
             }
 
             // Draw entire text
-            FormattedText ftAll = CreateFormattedText(fullText);
+            FormattedText ftAll = _textHelper.CreateFormattedText(fullText, ActualWidth);
             drawingContext.DrawText(ftAll, new Point(5, 5));
 
             // If selection, highlight it ...
-            if (HasSelection)
+            if (_selection.HasSelection)
             {
-                Geometry? selectionGeom = BuildSelectionGeometry(fullText,
-                    Math.Min(_selection.Start, _selection.End),
-                    Math.Max(_selection.Start, _selection.End));
-
-                if (selectionGeom != null)
-                {
-                    drawingContext.PushOpacity(0.4);
-                    drawingContext.DrawGeometry(Brushes.LightBlue, null, selectionGeom);
-                    drawingContext.Pop();
-                }
+                Geometry? selectionGeom = _selection.BuildSelectionGeometry(fullText, new Point(5, 5), ActualWidth);
 
                 if (selectionGeom != null)
                 {
@@ -305,8 +308,8 @@ namespace TextEditor.UI.Controls
             if (_caretBlinkVisible && IsKeyboardFocusWithin)
             {
                 string textBeforeCaret = fullText.Substring(0, Math.Min(_caret.Position, fullText.Length));
-                Point caretPos = ComputeCaretPosition(textBeforeCaret, new Point(5, 5));
-                DrawCaret(drawingContext, caretPos.X, caretPos.Y);
+                Point caretPos = _caret.ComputeCaretPosition(textBeforeCaret, ActualWidth);
+                _caret.DrawCaret(drawingContext, caretPos.X, caretPos.Y, ActualWidth, ActualHeight);
             }
         }
 
@@ -315,85 +318,5 @@ namespace TextEditor.UI.Controls
             InvalidateVisual();
         }
 
-        // ========== Helpers ==========
-
-        private FormattedText CreateFormattedText(string text)
-        {
-            var ft = new FormattedText(
-                text,
-                System.Globalization.CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight,
-                _typeface,
-                _fontSize,
-                Brushes.Black,
-                VisualTreeHelper.GetDpi(this).PixelsPerDip
-            )
-            {
-                MaxTextWidth = Math.Max(0, ActualWidth - 10),
-                Trimming = TextTrimming.None,
-                MaxLineCount = int.MaxValue,
-                TextAlignment = TextAlignment.Left
-            };
-            return ft;
-        }
-
-        private Point ComputeCaretPosition(string substring, Point start)
-        {
-            if (string.IsNullOrEmpty(substring)) return start;
-
-            FormattedText ft = CreateFormattedText(substring);
-            Geometry geo = ft.BuildHighlightGeometry(start);
-            if (geo == null) return start;
-
-            Rect bounds = geo.Bounds;
-            double x = bounds.Right;
-            double lineHeight = ft.Height;
-
-            if (substring.EndsWith("\n") || substring.EndsWith("\r\n"))
-            {
-                x = 5; 
-                return new Point(x, bounds.Bottom);
-            }
-            else
-            {
-                double y = bounds.Bottom - lineHeight;
-                return new Point(x, y);
-            }
-        }
-
-        private void DrawCaret(DrawingContext dc, double x, double y)
-        {
-            double safeX = Math.Min(x, ActualWidth - 2);
-            double safeY = Math.Min(y, ActualHeight - _fontSize);
-
-            Pen caretPen = new Pen(Brushes.Black, 1);
-            dc.DrawLine(caretPen, new Point(safeX, safeY), new Point(safeX, safeY + _fontSize));
-        }
-
-        private Geometry? BuildSelectionGeometry(string fullText, int selectionStart, int selectionEnd)
-        {
-            if (selectionStart >= selectionEnd) return null;
-
-            // Substring from 0..selectionEnd
-            string endText = fullText.Substring(0, selectionEnd);
-            FormattedText ftEnd = CreateFormattedText(endText);
-            Geometry geomEnd = ftEnd.BuildHighlightGeometry(new Point(5, 5));
-            
-            if (geomEnd == null) return null;
-
-            // Substring from 0..selectionStart
-            string startText = fullText.Substring(0, selectionStart);
-            FormattedText ftStart = CreateFormattedText(startText);
-            Geometry geomStart = ftStart.BuildHighlightGeometry(new Point(5, 5));
-
-            // Subtract to get the selection geometry
-            Geometry selection = geomEnd.Clone();
-            if (geomStart != null)
-            {
-                selection = Geometry.Combine(selection, geomStart, GeometryCombineMode.Exclude, null);
-            }
-
-            return selection;
-        }
     }
 }

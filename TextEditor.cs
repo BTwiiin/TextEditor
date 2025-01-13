@@ -1,4 +1,3 @@
-using System;
 using TextEditor.Core;         // Rope, UndoRedoStack, FormatDictionary
 using TextEditor.Utilities;    // FileHandler
 
@@ -7,13 +6,13 @@ namespace TextEditor
     public class TextEditorApp
     {
         public Rope _rope; // We expose rope so the RopeEditorControl can do "live" edits if needed
-        private UndoRedoStack _undoStack;
-        private UndoRedoStack _redoStack;
+        private Deque _undoStack;
+        private Deque _redoStack;
         private FormatDictionary _formatDictionary;
         private FileHandler _fileHandler;
 
         // Private static field to hold the single instance of the class
-        private static TextEditorApp _instance;
+        private static TextEditorApp? _instance;
 
         // Lock object for thread safety
         private static readonly object _lock = new object();
@@ -22,8 +21,8 @@ namespace TextEditor
         {
             // Initialize data structures
             _rope = new Rope();
-            _undoStack = new UndoRedoStack();
-            _redoStack = new UndoRedoStack();
+            _undoStack = new Deque();
+            _redoStack = new Deque();
             _formatDictionary = new FormatDictionary();
             _fileHandler = new FileHandler(); 
         }

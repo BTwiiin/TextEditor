@@ -23,10 +23,13 @@ namespace TextEditor.UI.Controls.Helpers
             {
                 MaxTextWidth = Math.Max(0, actualWidth - 10),
                 Trimming = TextTrimming.None,
-                MaxLineCount = int.MaxValue,
-                TextAlignment = TextAlignment.Left
+                MaxLineCount = 1000,
+                TextAlignment = TextAlignment.Left,
+                LineHeight = 16*1.2,
             };
+            
             return ft;
         }
+        
     }
 }

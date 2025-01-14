@@ -1,4 +1,7 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Formats.Tar;
+using System.Security.Cryptography.X509Certificates;
 using System.Windows;
 using System.Windows.Media;
 using TextEditor.UI.Controls.Helpers;
@@ -8,29 +11,12 @@ namespace TextEditor.UI.Controls
     public class Caret
     {
         private TextHelpers _textHelper = new TextHelpers();
-        private int _position;
-        private int _caretLine = 0;
+        private int _offset;
 
-        private int _currentLine = 0;
-
-        public int CaretLine
+        public int Offset 
         {
-            get => _caretLine;
-            set => _caretLine = value;
-        }
-
-        public int CurrentLine
-        {
-            get => _currentLine;
-            set => _currentLine = value;
-        }
-
-        private double _lineHeight = 18.733333079;
-
-        public int Position 
-        {
-            get => _position;
-            set => _position = value;
+            get => _offset;
+            set => _offset = value;
         }
 
         private double _fontSize = 16;
@@ -40,52 +26,81 @@ namespace TextEditor.UI.Controls
 
         public Caret(int start = 0)
         {
-            _position = start;
+            _offset = start;
             IsVisible = true;
         }
 
         // Move the caret left, preventing it from going before the start
-        public void MoveLeft() => _position = Math.Max(0, _position - 1);
+        public void MoveLeft() => _offset = Math.Max(0, _offset - 1);
 
         // Move the caret right, preventing it from going beyond the rope's length
-        public void MoveRight(int maxLength) => _position = Math.Min(_position + 1, maxLength);
+        public void MoveRight(int maxLength) => _offset = Math.Min(_offset + 1, maxLength);
 
-        // Compute the position of the caret based on the substring's width
-        public Point ComputeCaretPosition(string fullText, double actualWidth)
+        // Move the caret up, preventing it from going beyond the start of the text
+        public void MoveUp(string fullText)
         {
-            // Start at a small left margin (5,5)
+            if (string.IsNullOrEmpty(fullText) || _offset <= 0)
+                return;
+
+            int index = fullText.LastIndexOf('\n', _offset - 1);
+            if (index > 0)
+            {
+                int previousLineIndex = fullText.LastIndexOf('\n', index - 1);
+                int previousLineLength = (previousLineIndex >= 0) ? index - previousLineIndex - 1 : index;
+                int currentLineStart = fullText.LastIndexOf('\n', _offset - 1) + 1;
+                int distanceFromLineStart = _offset - currentLineStart;
+
+                if (distanceFromLineStart < previousLineLength)
+                {
+                    _offset -= previousLineLength + 1;
+                    return;
+                }
+
+                _offset = index;
+
+                return;
+            }
+
+            return;
+        }
+
+        // Move the caret down, preventing it from going beyond the end of the text
+        public void MoveDown(string fullText)
+        {
+            if (string.IsNullOrEmpty(fullText) || _offset >= fullText.Length)
+                return;
+
+            int index = fullText.IndexOf('\n', _offset - 1);
+            if (index > 0)
+            {
+                int nextLineIndex = fullText.IndexOf('\n', index + 1);
+                int nextLineLength = (nextLineIndex >= 0) ? nextLineIndex - index - 1 : fullText.Length - index - 1;
+                int currentLineStart = fullText.LastIndexOf('\n', _offset - 1) + 1;
+                int distanceFromLineStart = _offset - currentLineStart;
+
+                int currentLineLength = (currentLineStart >= 0) ? index - currentLineStart : index;
+
+                if (distanceFromLineStart <= nextLineLength)
+                {
+                    _offset += currentLineLength + 1;
+                    return;
+                }
+
+                _offset = index + nextLineLength + 1;
+                return;
+            }
+
+            return;
+        }
+
+        // Compute the offset of the caret based on the substring's width
+        public Point ComputeCaretOffset(string fullText, double actualWidth)
+        {
             Point startPoint = new Point(5, 5);
-            if (string.IsNullOrEmpty(fullText) || _position <= 0)
+            if (string.IsNullOrEmpty(fullText) || _offset <= 0)
                 return startPoint;
-
-            // Measure text from the beginning up to the caret position
-            string partial = fullText.Substring(0, Math.Min(_position, fullText.Length));
-            FormattedText ft = _textHelper.CreateFormattedText(partial, actualWidth);
-
-            // Build geometry to find the bounding box of the text
-            Geometry geo = ft.BuildHighlightGeometry(startPoint);
-            if (geo == null) return startPoint;
-
-            Rect bounds = geo.Bounds;
-            double x = bounds.Right;
-            double y = bounds.Bottom - ft.Height;
-
-            // Check if the last character was a newline
-            char lastChar = partial[^1];
-            if (lastChar == '\n')
-            {
-                x = 5;
-                y = bounds.Bottom; 
-            }
             
-            if (_currentLine > 0)
-            {
-                y += _currentLine * _lineHeight;
-            }
-
-            Console.WriteLine($"Caret position: {x}, {y}.");
-
-            return new Point(x, y);
+            return CalculateLogicalPosition(fullText, actualWidth, startPoint); 
         }
 
 
@@ -97,5 +112,55 @@ namespace TextEditor.UI.Controls
             Pen caretPen = new Pen(Brushes.Black, 1);
             dc.DrawLine(caretPen, new Point(safeX, safeY), new Point(safeX, safeY + _fontSize));
         }
+
+        private Point CalculateLogicalPosition(string fullText, double actualWidth, Point startPoint)
+        {
+            int currentLine = 0;
+            string partial = fullText.Substring(0, Math.Min(_offset, fullText.Length));
+            FormattedText ft = _textHelper.CreateFormattedText(partial, actualWidth);
+
+            double lineHeight = ft.LineHeight;
+
+            // Build geometry to find the bounding box of the text
+            Geometry geo = ft.BuildHighlightGeometry(startPoint);
+            if (geo == null) return startPoint;
+
+            Rect bounds = geo.Bounds;
+            double x = bounds.Right;
+            double y = bounds.Bottom - ft.Height;
+            
+            if (partial.Contains("\n"))
+            {
+                int caretLine = partial.Count(c => c == '\n');
+                // We actually have caretLine+1 total lines
+                int totalLines = caretLine + 1;
+
+                for (int i = 0; i < caretLine; i++)
+                {
+                    int index = partial.IndexOf('\n');
+                    if (_offset > index)
+                    {
+                        currentLine++;
+                        x = 5;
+                    }
+                    if (index >= 0)
+                    {
+                        partial = partial.Substring(index + 1);
+                        x = _textHelper.CreateFormattedText(partial, actualWidth).WidthIncludingTrailingWhitespace + 5;
+                    }
+                }
+
+                Console.WriteLine($"totalLines: {totalLines}");
+                Console.WriteLine($"currentLine: {currentLine}");
+                Console.WriteLine($"ft.Height: {ft.Height}");
+                Console.WriteLine($"lineHeight: {lineHeight}");
+                y += currentLine * lineHeight;
+
+                return new Point(x, y);
+            }
+
+            return new Point(x, y);
+        }
+
     }
 }

@@ -12,9 +12,9 @@ namespace TextEditor.UI.Controls
     {
         public TextEditorApp _textEditorApp { get; set; }
 
-        private TextHelpers _textHelper = new TextHelpers();
-        private Caret _caret = new Caret(0);
-        private Selection _selection = new Selection();
+        private TextHelpers _textHelper;
+        private Caret _caret;
+        private Selection _selection;
 
         // --- TYPING SESSION FIELDS ---
         private bool _typingSessionActive = false;
@@ -38,6 +38,10 @@ namespace TextEditor.UI.Controls
         {
             Focusable = true;
             _textEditorApp = TextEditorApp.Instance;
+
+            _textHelper = new TextHelpers();
+            _caret = new Caret();
+            _selection = new Selection();
 
             // blinking caret timer
             _caretTimer = new DispatcherTimer
@@ -65,8 +69,8 @@ namespace TextEditor.UI.Controls
             base.OnGotFocus(e);
             if (_textEditorApp != null)
             {
-                if (_caret.Position > _textEditorApp.RopeLength)
-                    _caret.Position = _textEditorApp.RopeLength;
+                if (_caret.Offset > _textEditorApp.RopeLength)
+                    _caret.Offset = _textEditorApp.RopeLength;
             }
             InvalidateVisual();
         }
@@ -89,7 +93,7 @@ namespace TextEditor.UI.Controls
                 int length = Math.Abs(_selection.End - _selection.Start);
                 // remove from rope "live"
                 _textEditorApp._rope.Delete(start, length);
-                _caret.Position = start;
+                _caret.Offset = start;
                 ClearSelection();
 
                 // Also end any existing typing session
@@ -117,12 +121,12 @@ namespace TextEditor.UI.Controls
             {
                 _typingSessionActive = true;
                 _typingBuffer.Clear();
-                _typingStart = _caret.Position;
+                _typingStart = _caret.Offset;
             }
 
             // "Live" insert so user sees typed char
-            _textEditorApp._rope.Insert(_caret.Position, typed);
-            _caret.Position += typed.Length;
+            _textEditorApp._rope.Insert(_caret.Offset, typed);
+            _caret.Offset += typed.Length;
 
             // Accumulate into the typing buffer
             _typingBuffer.Append(typed);
@@ -147,7 +151,7 @@ namespace TextEditor.UI.Controls
             if (e.Key == Key.Left || e.Key == Key.Right ||
                 e.Key == Key.Up || e.Key == Key.Down ||
                 e.Key == Key.Back || e.Key == Key.Delete ||
-                e.Key == Key.Enter)
+                e.Key == Key.Enter || e.Key == Key.Tab)
             {
                 FinalizeTypingSession();
             }
@@ -159,8 +163,8 @@ namespace TextEditor.UI.Controls
                 _textEditorApp.Undo();
                 handled = true;
 
-                if (_caret.Position > _textEditorApp.RopeLength)
-                    _caret.Position = _textEditorApp.RopeLength;
+                if (_caret.Offset > _textEditorApp.RopeLength)
+                    _caret.Offset = _textEditorApp.RopeLength;
 
                 InvalidateVisual();
                 Focus(); // Keep focus
@@ -171,8 +175,8 @@ namespace TextEditor.UI.Controls
                 _textEditorApp.Redo();
                 handled = true;
 
-                if (_caret.Position > _textEditorApp.RopeLength)
-                    _caret.Position = _textEditorApp.RopeLength;
+                if (_caret.Offset > _textEditorApp.RopeLength)
+                    _caret.Offset = _textEditorApp.RopeLength;
 
                 InvalidateVisual();
                 Focus();
@@ -183,7 +187,7 @@ namespace TextEditor.UI.Controls
                 if (_textEditorApp.RopeLength > 0)
                 {
                     _selection.SetRange(0, _textEditorApp.RopeLength);
-                    _caret.Position = _textEditorApp.RopeLength;
+                    _caret.Offset = _textEditorApp.RopeLength;
                 }
                 handled = true;
             }
@@ -192,7 +196,7 @@ namespace TextEditor.UI.Controls
                 switch (e.Key)
                 {
                     case Key.Back:
-                        if (_caret.Position > 0 || _selection.HasSelection)
+                        if (_caret.Offset > 0 || _selection.HasSelection)
                         {
                             if (_selection.HasSelection)
                             {
@@ -200,13 +204,13 @@ namespace TextEditor.UI.Controls
                                 int length = Math.Abs(_selection.End - _selection.Start);
                                 // remove live
                                 _textEditorApp._rope.Delete(start, length);
-                                _caret.Position = start;
+                                _caret.Offset = start;
                                 ClearSelection();
                             }
                             else
                             {
-                                _textEditorApp._rope.Delete(_caret.Position - 1, 1);
-                                _caret.Position--;
+                                _textEditorApp._rope.Delete(_caret.Offset - 1, 1);
+                                _caret.Offset--;
                             }
                             handled = true;
                         }
@@ -222,13 +226,53 @@ namespace TextEditor.UI.Controls
                         InvalidateVisual();
                         e.Handled = true;
                         break;
+
+                    case Key.Up:
+                        _caret.MoveUp(_textEditorApp._rope.GetText());
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;
+
+                    case Key.Down:
+                        _caret.MoveDown(_textEditorApp._rope.GetText());
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;    
                     
                     case Key.Enter:
-                        _textEditorApp._rope.Insert(_caret.Position, "\n");
+                        _textEditorApp._rope.Insert(_caret.Offset, "\n");
                         _caret.MoveRight(_textEditorApp._rope.Length); 
                         InvalidateVisual();
                         e.Handled = true;
                         break;
+
+                    case Key.Delete:
+                        if (_caret.Offset < _textEditorApp.RopeLength || _selection.HasSelection)
+                        {
+                            if (_selection.HasSelection)
+                            {
+                                int start = Math.Min(_selection.Start, _selection.End);
+                                int length = Math.Abs(_selection.End - _selection.Start);
+                                // remove live
+                                _textEditorApp._rope.Delete(start, length);
+                                _caret.Offset = start;
+                                ClearSelection();
+                            }
+                            else
+                            {
+                                _textEditorApp._rope.Delete(_caret.Offset, 1);
+                            }
+                            handled = true;
+                        }
+                        break;
+
+                    case Key.Tab:
+                        _textEditorApp._rope.Insert(_caret.Offset, "\t");
+                        _caret.Offset++;
+                        InvalidateVisual();
+                        e.Handled = true;
+                        break;
+
                     
                 }
             }
@@ -307,8 +351,8 @@ namespace TextEditor.UI.Controls
             // Draw caret if blink is on
             if (_caretBlinkVisible && IsKeyboardFocusWithin)
             {
-                string textBeforeCaret = fullText.Substring(0, Math.Min(_caret.Position, fullText.Length));
-                Point caretPos = _caret.ComputeCaretPosition(textBeforeCaret, ActualWidth);
+                string textBeforeCaret = fullText.Substring(0, Math.Min(_caret.Offset, fullText.Length));
+                Point caretPos = _caret.ComputeCaretOffset(textBeforeCaret, ActualWidth);
                 _caret.DrawCaret(drawingContext, caretPos.X, caretPos.Y, ActualWidth, ActualHeight);
             }
         }
